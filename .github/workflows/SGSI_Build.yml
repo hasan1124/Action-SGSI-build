@@ -24,59 +24,56 @@ on:
         required: true
         default: 'SGSI.zip'
 
-
-
-
 jobs:
   build:
     runs-on: ubuntu-20.04
 
     steps:
-      - name: Get the source code of this repositorie...
-        uses: actions/checkout@main
+      - name: Checkout Repository
+        uses: actions/checkout@v3
 
-      - name: Get variable configuration...
+      - name: Set Build Time
         run: |
           echo "BUILD_TIME=$(date +%s | md5sum | awk '{print substr($1,1,10)}')" >> $GITHUB_ENV
 
-      - name: Clean up the environment‌‌...
+      - name: Clean Environment
         run: |
-          docker rmi `docker images -q`
+          docker rmi $(docker images -q) || true
           sudo rm -rf /usr/share/dotnet /etc/mysql /etc/php /etc/apt/sources.list.d
-          sudo -E apt-get -y purge azure-cli ghc* zulu* hhvm llvm* firefox google* dotnet* powershell openjdk* mysql* php*
-          sudo -E apt-get update
-          sudo -E apt-get -y autoremove --purge
-          sudo -E apt-get clean
-          df -h
+          sudo apt-get -y purge azure-cli ghc* zulu* hhvm llvm* firefox google* dotnet* powershell openjdk* mysql* php* || true
+          sudo apt-get update
+          sudo apt-get -y autoremove --purge
+          sudo apt-get clean
 
-      - name: Configuration Environment‌‌...
+      - name: Install Required Tools
         run: |
-          sudo apt-get install -y git wget git zip unzip curl axel
+          sudo apt-get install -y git wget zip unzip curl axel
 
-      - name: Get the SGSI tool‌‌...
+      - name: Clone SGSI Tool
         run: |
           git clone --recurse-submodules https://github.com/xiaoxindada/SGSI-build-tool.git -b 11 $GITHUB_WORKSPACE/Tool-SGSI-build
 
-      - name: Replace custom condensed content...
+      - name: Replace Custom Content
         run: |
           sudo rm -rf $GITHUB_WORKSPACE/Tool-SGSI-build/apps_clean
           sudo cp -r apps_clean $GITHUB_WORKSPACE/Tool-SGSI-build/apps_clean
           sudo chmod 777 -R $GITHUB_WORKSPACE/Tool-SGSI-build
 
-      - name: Download ROM‌‌...
+      - name: Download ROM
         run: |
           cd $GITHUB_WORKSPACE/Tool-SGSI-build
           mkdir ./tmp
-          wget -U "Mozilla/5.0" ${{ github.event.inputs.ROM_URL }} -O "$GITHUB_WORKSPACE/Tool-SGSI-build/tmp/${{ github.event.inputs.ZIP_NAME }}"
-          echo "zip_file: $(ls "$GITHUB_WORKSPACE/Tool-SGSI-build/tmp/")"
+          wget -U "Mozilla/5.0" ${{ github.event.inputs.ROM_URL }} -O "./tmp/${{ github.event.inputs.ZIP_NAME }}"
+          if [ ! -f "./tmp/${{ github.event.inputs.ZIP_NAME }}" ]; then
+            echo "ROM download failed!" && exit 1
+          fi
 
-      - name: Configuration tool environment...
+      - name: Configure Tool Environment
         run: |
-          sudo sed -i 's/USE_MIRROR_FOR_PIP\=true/USE_MIRROR_FOR_PIP\=false/' $GITHUB_WORKSPACE/Tool-SGSI-build/setup.sh
+          sudo sed -i 's/USE_MIRROR_FOR_PIP=true/USE_MIRROR_FOR_PIP=false/' $GITHUB_WORKSPACE/Tool-SGSI-build/setup.sh
           sudo bash $GITHUB_WORKSPACE/Tool-SGSI-build/setup.sh
-          java -version
 
-      - name: Make AB type GSI‌‌...
+      - name: Build AB GSI
         if: ${{ github.event.inputs.SGSI_TYPE }} == 'AB' || ${{ github.event.inputs.SGSI_TYPE }} == 'BOTH'
         run: |
           sudo bash $GITHUB_WORKSPACE/Tool-SGSI-build/make.sh AB << EOF
@@ -85,27 +82,21 @@ jobs:
           y
           ${{ github.event.inputs.OS_TYPE }}
           y
+          EOF
 
-      - name: Packing(AB)...
+      - name: Pack AB GSI
         if: ${{ github.event.inputs.SGSI_TYPE }} == 'AB' || ${{ github.event.inputs.SGSI_TYPE }} == 'BOTH'
         run: |
           cd $GITHUB_WORKSPACE/Tool-SGSI-build
-          pwd
           zip -r AB_${{ github.event.inputs.REPACK_NAME }} SGSI/*
-          ls "AB_${{ github.event.inputs.REPACK_NAME }}"
-          echo "--------------------------------------"
-          ls
-          echo "--------------------------------------"
-          mkdir upload_ab
-          echo "--------------------------------------"
-          ls upload_ab
-          echo "--------------------------------------"
-          if [ $(ls -l AB_${{ github.event.inputs.REPACK_NAME }} | awk '{print $5}') -gt 2147483647 ]; then tar cvzpf - AB_${{ github.event.inputs.REPACK_NAME }} | split -d -b 1024m - upload_ab/AB_${{ github.event.inputs.REPACK_NAME }}; else mv AB_${{ github.event.inputs.REPACK_NAME }} upload_ab/AB_${{ github.event.inputs.REPACK_NAME }}; fi
-          echo "--------------------------------------"
-          ls upload_ab
-          echo "--------------------------------------"
+          mkdir -p upload_ab
+          if [ $(stat --printf="%s" AB_${{ github.event.inputs.REPACK_NAME }}) -gt 2147483647 ]; then
+            tar cvzpf - AB_${{ github.event.inputs.REPACK_NAME }} | split -d -b 1024m - upload_ab/AB_
+          else
+            mv AB_${{ github.event.inputs.REPACK_NAME }} upload_ab/
+          fi
 
-      - name: Make A-only type GSI‌‌...
+      - name: Build A-only GSI
         if: ${{ github.event.inputs.SGSI_TYPE }} == 'A' || ${{ github.event.inputs.SGSI_TYPE }} == 'BOTH'
         run: |
           sudo bash $GITHUB_WORKSPACE/Tool-SGSI-build/make.sh A << EOF
@@ -114,30 +105,26 @@ jobs:
           y
           ${{ github.event.inputs.OS_TYPE }}
           y
+          EOF
 
-      - name: Packing(A-only)...
+      - name: Pack A-only GSI
         if: ${{ github.event.inputs.SGSI_TYPE }} == 'A' || ${{ github.event.inputs.SGSI_TYPE }} == 'BOTH'
         run: |
           cd $GITHUB_WORKSPACE/Tool-SGSI-build
-          pwd
           zip -r AONLY_${{ github.event.inputs.REPACK_NAME }} SGSI/*
-          ls "AONLY_${{ github.event.inputs.REPACK_NAME }}"
-          echo "--------------------------------------"
-          ls
-          echo "--------------------------------------"
-          mkdir upload_aonly
-          echo "--------------------------------------"
-          ls upload_aonly
-          echo "--------------------------------------"
-          if [ $(ls -l AONLY_${{ github.event.inputs.REPACK_NAME }} | awk '{print $5}') -gt 2147483647 ]; then tar cvzpf - AONLY_${{ github.event.inputs.REPACK_NAME }} | split -d -b 1024m - upload_aonly/AONLY_${{ github.event.inputs.REPACK_NAME }}; else mv AONLY_${{ github.event.inputs.REPACK_NAME }} upload_aonly/AONLY_${{ github.event.inputs.REPACK_NAME }}; fi
-          echo "--------------------------------------"
-          ls upload_aonly
-          echo "--------------------------------------"
+          mkdir -p upload_aonly
+          if [ $(stat --printf="%s" AONLY_${{ github.event.inputs.REPACK_NAME }}) -gt 2147483647 ]; then
+            tar cvzpf - AONLY_${{ github.event.inputs.REPACK_NAME }} | split -d -b 1024m - upload_aonly/AONLY_
+          else
+            mv AONLY_${{ github.event.inputs.REPACK_NAME }} upload_aonly/
+          fi
 
-      - name: Upload to Release‌‌...
+      - name: Upload to Release
         uses: ncipollo/release-action@v1.8.0
         with:
-          artifacts: "${{ github.workspace }}/Tool-SGSI-build/upload_ab/*,${{ github.workspace }}/Tool-SGSI-build/upload_aonly/*"
+          artifacts: |
+            $GITHUB_WORKSPACE/Tool-SGSI-build/upload_ab/*
+            $GITHUB_WORKSPACE/Tool-SGSI-build/upload_aonly/*
           tag: "${{ github.event.inputs.REPACK_NAME }}_${{ env.BUILD_TIME }}"
-          bodyFile: "${{ github.workspace }}/Tool-SGSI-build/SGSI/build_info.txt"
+          bodyFile: "$GITHUB_WORKSPACE/Tool-SGSI-build/SGSI/build_info.txt"
           token: ${{ secrets.GITHUB_TOKEN }}
